@@ -93,53 +93,52 @@ object KafkaRedisOffset {
           .equalsIgnoreCase("reChargeNotifyReq")&&
       json.getString("interFacRst").equals("0000")})
         .map(json => {
-          // 业务结果  0000 成功，其它返回错误编码
-          val bussinessRst: String = json.getString("bussinessRst")
-         // 金额
-          val money: Double = if (bussinessRst.equals("0000"))
-            json.getDouble("chargefee")else 0.0
-
+          val rechargeRes = json.getString("bussinessRst") // 充值结果
+          val fee: Double = if (rechargeRes.equals("0000")) // 判断是否充值成功
+            json.getDouble("chargefee") else 0.0 // 充值金额
+          val feeCount = if (!fee.equals(0.0)) 1 else 0 // 获取到充值成功数,金额不等于0
+          val starttime = json.getString("requestId") // 开始充值时间
+          val recivcetime = json.getString("receiveNotifyTime") // 结束充值时间
+          val pcode = json.getString("provinceCode") // 获得省份编号
+          val province = provinceBroadcast.value.get(pcode).toString // 通过省份编号进行取值
           // 充值成功数
-          val success: Int = if (bussinessRst.equals("0000")) 1 else 0
-          // 充值的开始时间
-          val startReqTime: String = json.getString("requestId")
-          // 充值的结束时间
-          val endReqTime: String = json.getString("receiveNotifyTime")
-//
+          val isSucc = if (rechargeRes.equals("0000")) 1 else 0
           // 充值时长
-          val timeLong: Double = if (bussinessRst.equals("0000"))
-            TimeUtils.changeTime(startReqTime, endReqTime) else 0.0
-          // 获得省
-          val provinceCode: String = json.getString("provinceCode")
-          val province: String = provinceBroadcast.value.getOrElse(provinceCode,"NUll")
+          val costtime = if (rechargeRes.equals("0000")) TimeUtils.changeTime(starttime, recivcetime) else 0
 
-          //统计充值订单量，充值金额，充值成功数，充值时长)
-          (startReqTime,
-            province,
-            List[Double](1, money, success.toDouble,timeLong))
-        }).cache()
-     //
-    val res1 = baseData.map(x=>(x._1,x._3)).reduceByKey((list1,list2)=>list1.zip(list2).map(x=>x._2+x._1))
-      Jedis2Result.Result01(res1)
+          (starttime.substring(0, 8), // 年月日
+            starttime.substring(0, 10), // 年月日时
+            List[Double](1, fee, isSucc, costtime.toDouble, feeCount), // (数字1用于统计充值订单量，充值金额，充值成功数，充值时长，充值成功数且金额不等于0)
+            province, // 省份
+            starttime.substring(0, 12), // 年月日时分
+            (starttime.substring(0, 10), province) // (年月日时，省份)
+          )}).cache()
 
-      // 统计每小时各个省份的充值失败数据量
-    val res2 = baseData.map(x=>((x._1.substring(0,8),x._2),x._3)).reduceByKey((list1,list2)=>list1.zip(list2).map(x=>x._2+x._1))
-       Jedis2Result.Result02(res2)
+      // 指标一
+      // 要将两个list拉倒一起去，因为每次处理的结果要合并
+      val result1 = baseData.map(t => (t._1, t._3)).reduceByKey((list1, list2) => {
+        // 拉链操作
+        list1.zip(list2).map(t => t._1 + t._2)})
+      Jedis2Result.Result01(result1)
 
-    val res3 = baseData.map(x=>(x._2,x._3)).reduceByKey((list1,list2)=>list1.zip(list2).map(x=>x._2+x._1))
-       Jedis2Result.Result03(res3)
+      // 指标二
+      val result2 = baseData.map(t => (t._6, t._3)).reduceByKey((list1, list2) => {
+        list1.zip(list2).map(t => t._1 + t._2)})
+      Jedis2Result.Result02(result2)
 
-    val res4 = baseData.map(x=>(x._1.substring(0,10),x._3)).reduceByKey((list1,list2)=>list1.zip(list2).map(x=>x._2+x._1))
-      Jedis2Result.Result04(res4)
+      // 指标三
+      val result3 = baseData.map(t => (t._4, t._3)).reduceByKey((list1, list2) => {
+        list1.zip(list2).map(t => t._1 + t._2)})
+      Jedis2Result.Result03(result3)
+
+      // 指标四
+      // 要将两个list拉倒一起去，因为每次处理的结果要合并
+      val result4 = baseData.map(t => (t._5, t._3)).reduceByKey((list1, list2) => {
+        list1.zip(list2).map(t => t._1 + t._2)})
+      Jedis2Result.Result04(result4)
 
     val res5 = baseData.map(x=>((x._1.substring(0,8),x._2),x._3)).reduceByKey((list1,list2)=>list1.zip(list2).map(x=>(x._2+x._1)))
       Jedis2Result.Result05(res5)
-
-
-
-
-
-
 
 
 

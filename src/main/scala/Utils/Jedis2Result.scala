@@ -32,17 +32,13 @@ object Jedis2Result {
     *  指标2
     */
   def Result02(lines:RDD[((String,String),List[Double])]):Unit={
-    lines.map(x=> {
-      val time = x._1._1
-      val pro = x._1._2
-      val counts = x._2.head - x._2(2)
-      (time,pro,counts)
-    }).foreachPartition(f=>{
+    lines.foreachPartition(f => {
       val connection = JdbcMySQL.getConn()
-      f.foreach(t=>{
-        val sql = "insert into protime(time,pro,counts) values('"+t._1+"', '"+t._2+"',"+t._3+")"
-        val statement = connection.createStatement()
-        statement.executeUpdate(sql)
+      // (数字1用于统计充值订单量，充值金额，充值成功数，充值时长，充值成功数且金额不等于0)
+      f.foreach(t => {
+        val sql ="insert into protime(protime,counts) values('"+t._1+"',"+(t._2.head -t._2(2))+")"
+       val state = connection.createStatement()
+        state.executeUpdate(sql)
       })
       JdbcMySQL.releaseCon(connection)
     })
@@ -53,17 +49,19 @@ object Jedis2Result {
     * @param lines
     */
   def Result03(lines:RDD[(String,List[Double])]):Unit= {
-    lines.sortBy(_._2.head,false).map(x=>
-      (x._1,(x._2(2)/ x._2.head *100).formatted("%.1f"))
-    ).groupByKey().mapValues(x=>x.size).foreachPartition(f=>{
-      val connection = JdbcMySQL.getConn()
-      f.foreach(x=>{
-        val sql = "insert into provinceTopN(pro,success) values('"+x._1+"',"+x._2+")"
-        val statement = connection.createStatement()
-        statement.executeUpdate(sql)
+    lines.sortBy(_._2.head, false)
+      // (数字1用于统计充值订单量，充值金额，充值成功数，充值时长，充值成功数且金额不等于0)
+      .map(t => (t._1, (t._2(2) / t._2.head * 100).formatted("%.1f")))
+      .foreachPartition(t => {
+        // 拿到连接
+        val conn = JdbcMySQL.getConn()
+        t.foreach(t => {
+          val sql = "insert into provinceTopN(pro,success)values('" + t._1 + "'," + t._2.toDouble + ")"
+          val state = conn.createStatement()
+          state.executeUpdate(sql)
+        })
+        JdbcMySQL.releaseCon(conn)
       })
-      JdbcMySQL.releaseCon(connection)
-    })
   }
 
   /**
@@ -71,12 +69,22 @@ object Jedis2Result {
     * @param lines
     */
   def Result04(lines:RDD[(String,List[Double])]):Unit= {
-    lines.map(x=>{
-      CountMoney.change(List(x._1,x._2(1),x._2(4)))
-    }).map(x=>(x.map(_._1),x.map(x=>(x._2,x._3))))
-      .reduceByKey((list1,list2)=>list1.zip(list2)
-        .map(x=>
-        (x._1._1  + x._2._1 ,x._1._2 + x._2._2)))
+    lines.map(t => {
+      CountMoney.change(List(t._1, t._2(1), t._2(4)))
+    }).map(t => (t.map(_._1), t.map(t => (t._2, t._3))))
+      .reduceByKey((list1, list2) => list1.zip(list2)
+        .map(t => (t._1._1 + t._2._1, t._1._2 + t._2._2)))
+      .foreachPartition(t => {
+        // 拿到连接
+        val conn = JdbcMySQL.getConn()
+        t.foreach(t => {
+          val sql = "insert into RealTime(hour,count,money)values('" + t._1 + "'," + t._2.map(_._1.toDouble) + "," + t._2.map(_._2.toDouble) + ")"
+          val state = conn.createStatement()
+          state.executeUpdate(sql)
+        })
+        JdbcMySQL.releaseCon(conn)
+      })
+
   }
 
   /**
@@ -84,16 +92,16 @@ object Jedis2Result {
     * @param lines
     */
   def Result05(lines:RDD[((String,String),List[Double])])={
-    lines.filter(_._1._1 == "201704").map(x=>{
-      (x._1,x._2.head - x._2(1),(x._2.head -x._2(1)/ x._2.head *100).formatted("%.2f"))
-    }).sortBy(_._2,false).foreachPartition(x=>{
-      val connection = JdbcMySQL.getConn()
-      x.foreach(x=>{
-        val sql = "insert into failTopN(time,pro,failnumber,failrate)value('" + x._1._1 + "','" + x._1._2 + "', + "+x._2.toDouble + ","+ x._3.toDouble + ")"
-        val statement = connection.createStatement()
-        statement.executeUpdate(sql)
-      })
-      JdbcMySQL.releaseCon(connection)
-    })
+//    lines.filter(_._1._1 == "20170412").map(x=>{
+//      (x._1,x._2.head - x._2(1),(x._2.head -x._2(1)/ x._2.head *100).formatted("%.2f"))
+//    }).sortBy(_._2,false).foreachPartition(x=>{
+//      val connection = JdbcMySQL.getConn()
+//      x.foreach(x=>{
+//        val sql = "insert into failTopN(time,pro,failnumber,failrate)values('" + x._1._1 + "','" + x._1._2 + "',"+x._2.toDouble + ","+ x._3.toDouble + ")"
+//        val statement = connection.createStatement()
+//        statement.executeUpdate(sql)
+//      })
+//      JdbcMySQL.releaseCon(connection)
+//    })
   }
 }
